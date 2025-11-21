@@ -8,13 +8,16 @@
     It will:
       * Auto-detect your domain FQDN and DN from AD
       * Ask for a root "lab" OU name
-      * Create a sub-OU structure:
+      * Create an OU structure:
             <RootOU>
-              ├─ External Users
-              ├─ Service Accounts
-              ├─ Standard Users
-              ├─ Disabled Users
-              └─ Elevated Users
+              ├─ Users
+              │   ├─ External Users
+              │   ├─ Service Accounts
+              │   ├─ Standard Users
+              │   ├─ Disabled Users
+              │   └─ Elevated Users
+              ├─ Groups
+              └─ Computers
       * Create some sample users and groups
       * Give users random departments / roles (Title) and descriptions
       * Prompt for a new domain admin account name and password and add it to Domain Admins
@@ -89,12 +92,16 @@ Write-Host ""
 $defaultRootOUName = $NetbiosName
 $RootOUName = Get-NonEmptyInput -Message "Enter name of the main lab OU (root OU)" -Default $defaultRootOUName
 
-$RootOUDN            = "OU=$RootOUName,$DomainDN"
-$ExternalOUDN        = "OU=External Users,$RootOUDN"
-$ServiceAccountsOUDN = "OU=Service Accounts,$RootOUDN"
-$StandardUsersOUDN   = "OU=Standard Users,$RootOUDN"
-$DisabledUsersOUDN   = "OU=Disabled Users,$RootOUDN"
-$ElevatedUsersOUDN   = "OU=Elevated Users,$RootOUDN"
+$RootOUDN         = "OU=$RootOUName,$DomainDN"
+$UsersRootOUDN    = "OU=Users,$RootOUDN"
+$GroupsRootOUDN   = "OU=Groups,$RootOUDN"
+$ComputersRootOUDN= "OU=Computers,$RootOUDN"
+
+$ExternalOUDN        = "OU=External Users,$UsersRootOUDN"
+$ServiceAccountsOUDN = "OU=Service Accounts,$UsersRootOUDN"
+$StandardUsersOUDN   = "OU=Standard Users,$UsersRootOUDN"
+$DisabledUsersOUDN   = "OU=Disabled Users,$UsersRootOUDN"
+$ElevatedUsersOUDN   = "OU=Elevated Users,$UsersRootOUDN"
 
 Write-Host "Creating OU structure under $DomainDN ..." -ForegroundColor Cyan
 
@@ -107,13 +114,11 @@ else {
     Write-Host "Root OU already exists: $RootOUName" -ForegroundColor Yellow
 }
 
-# Create sub OUs
+# Create Users, Groups, Computers under RootOU
 foreach ($ou in @(
-    @{ Name = "External Users";      DN = $ExternalOUDN },
-    @{ Name = "Service Accounts";    DN = $ServiceAccountsOUDN },
-    @{ Name = "Standard Users";      DN = $StandardUsersOUDN },
-    @{ Name = "Disabled Users";      DN = $DisabledUsersOUDN },
-    @{ Name = "Elevated Users";      DN = $ElevatedUsersOUDN }
+    @{ Name = "Users";     ParentDN = $RootOUDN },
+    @{ Name = "Groups";    ParentDN = $RootOUDN },
+    @{ Name = "Computers"; ParentDN = $RootOUDN }
 )) {
     if (-not (Get-ADOrganizationalUnit -LDAPFilter "(ou=$($ou.Name))" -SearchBase $RootOUDN -ErrorAction SilentlyContinue)) {
         New-ADOrganizationalUnit -Name $ou.Name -Path $RootOUDN -ProtectedFromAccidentalDeletion $false
@@ -121,6 +126,23 @@ foreach ($ou in @(
     }
     else {
         Write-Host "OU already exists: $($ou.Name)" -ForegroundColor Yellow
+    }
+}
+
+# Create user sub-OUs under Users
+foreach ($ou in @(
+    @{ Name = "External Users";      ParentDN = $UsersRootOUDN },
+    @{ Name = "Service Accounts";    ParentDN = $UsersRootOUDN },
+    @{ Name = "Standard Users";      ParentDN = $UsersRootOUDN },
+    @{ Name = "Disabled Users";      ParentDN = $UsersRootOUDN },
+    @{ Name = "Elevated Users";      ParentDN = $UsersRootOUDN }
+)) {
+    if (-not (Get-ADOrganizationalUnit -LDAPFilter "(ou=$($ou.Name))" -SearchBase $UsersRootOUDN -ErrorAction SilentlyContinue)) {
+        New-ADOrganizationalUnit -Name $ou.Name -Path $UsersRootOUDN -ProtectedFromAccidentalDeletion $false
+        Write-Host "Created OU under Users: $($ou.Name)" -ForegroundColor Green
+    }
+    else {
+        Write-Host "User OU already exists: $($ou.Name)" -ForegroundColor Yellow
     }
 }
 
@@ -132,10 +154,10 @@ Write-Host ""
 Write-Host "Creating lab security groups..." -ForegroundColor Cyan
 
 $Groups = @(
-    @{ Name = "Standard Users Group";   Path = $StandardUsersOUDN },
-    @{ Name = "External Users Group";   Path = $ExternalOUDN },
-    @{ Name = "Elevated Users Group";   Path = $ElevatedUsersOUDN },
-    @{ Name = "Service Accounts Group"; Path = $ServiceAccountsOUDN }
+    @{ Name = "Standard Users Group";   Path = $GroupsRootOUDN },
+    @{ Name = "External Users Group";   Path = $GroupsRootOUDN },
+    @{ Name = "Elevated Users Group";   Path = $GroupsRootOUDN },
+    @{ Name = "Service Accounts Group"; Path = $GroupsRootOUDN }
 )
 
 foreach ($g in $Groups) {
@@ -228,12 +250,18 @@ function New-LabUserMetadata {
 Write-Host ""
 Write-Host "Creating sample lab users..." -ForegroundColor Cyan
 
-# Standard Users (American/European names)
+# Standard Users (10 total)
 $StandardUsers = @(
-    @{ Name = "John Doe";       Sam = "john.doe" },
-    @{ Name = "Anna Smith";     Sam = "anna.smith" },
-    @{ Name = "Lars Eriksson";  Sam = "lars.eriksson" },
-    @{ Name = "Emily Brown";    Sam = "emily.brown" }
+    @{ Name = "John Doe";        Sam = "john.doe" },
+    @{ Name = "Anna Smith";      Sam = "anna.smith" },
+    @{ Name = "Lars Eriksson";   Sam = "lars.eriksson" },
+    @{ Name = "Emily Brown";     Sam = "emily.brown" },
+    @{ Name = "David Johnson";   Sam = "david.johnson" },
+    @{ Name = "Sarah Miller";    Sam = "sarah.miller" },
+    @{ Name = "Peter Nielsen";   Sam = "peter.nielsen" },
+    @{ Name = "Julia Novak";     Sam = "julia.novak" },
+    @{ Name = "Mark Taylor";     Sam = "mark.taylor" },
+    @{ Name = "Sofia Rossi";     Sam = "sofia.rossi" }
 )
 
 foreach ($u in $StandardUsers) {
@@ -262,10 +290,11 @@ foreach ($u in $StandardUsers) {
     }
 }
 
-# External Users
+# External Users (3 total)
 $ExternalUsers = @(
-    @{ Name = "Mia Jensen";    Sam = "mia.jensen" },
-    @{ Name = "Oliver Martin"; Sam = "oliver.martin" }
+    @{ Name = "Mia Jensen";     Sam = "mia.jensen" },
+    @{ Name = "Oliver Martin";  Sam = "oliver.martin" },
+    @{ Name = "Chloe Dubois";   Sam = "chloe.dubois" }
 )
 
 foreach ($u in $ExternalUsers) {
@@ -294,7 +323,7 @@ foreach ($u in $ExternalUsers) {
     }
 }
 
-# Service Accounts
+# Service Accounts (2 total)
 $ServiceAccounts = @(
     @{ Name = "SQL Service Account"; Sam = "svc-sql" },
     @{ Name = "Web Service Account"; Sam = "svc-web" }
@@ -333,19 +362,19 @@ foreach ($u in $ServiceAccounts) {
 Write-Host ""
 Write-Host "Adding users to lab groups..." -ForegroundColor Cyan
 
-$standardGroup = Get-ADGroup -Filter "Name -eq 'Standard Users Group'" -SearchBase $StandardUsersOUDN -ErrorAction SilentlyContinue
+$standardGroup = Get-ADGroup -Filter "Name -eq 'Standard Users Group'" -SearchBase $GroupsRootOUDN -ErrorAction SilentlyContinue
 if ($standardGroup) {
     $standardMembers = $StandardUsers | ForEach-Object { $_.Sam }
     Add-ADGroupMember -Identity $standardGroup -Members $standardMembers -ErrorAction SilentlyContinue
 }
 
-$externalGroup = Get-ADGroup -Filter "Name -eq 'External Users Group'" -SearchBase $ExternalOUDN -ErrorAction SilentlyContinue
+$externalGroup = Get-ADGroup -Filter "Name -eq 'External Users Group'" -SearchBase $GroupsRootOUDN -ErrorAction SilentlyContinue
 if ($externalGroup) {
     $externalMembers = $ExternalUsers | ForEach-Object { $_.Sam }
     Add-ADGroupMember -Identity $externalGroup -Members $externalMembers -ErrorAction SilentlyContinue
 }
 
-$svcGroup = Get-ADGroup -Filter "Name -eq 'Service Accounts Group'" -SearchBase $ServiceAccountsOUDN -ErrorAction SilentlyContinue
+$svcGroup = Get-ADGroup -Filter "Name -eq 'Service Accounts Group'" -SearchBase $GroupsRootOUDN -ErrorAction SilentlyContinue
 if ($svcGroup) {
     $svcMembers = $ServiceAccounts | ForEach-Object { $_.Sam }
     Add-ADGroupMember -Identity $svcGroup -Members $svcMembers -ErrorAction SilentlyContinue
@@ -401,7 +430,7 @@ else {
     Write-Host "Could not find 'Domain Admins' group. Skipping Domain Admins membership." -ForegroundColor Red
 }
 
-$elevatedGroup = Get-ADGroup -Filter "Name -eq 'Elevated Users Group'" -SearchBase $ElevatedUsersOUDN -ErrorAction SilentlyContinue
+$elevatedGroup = Get-ADGroup -Filter "Name -eq 'Elevated Users Group'" -SearchBase $GroupsRootOUDN -ErrorAction SilentlyContinue
 if ($elevatedGroup) {
     Add-ADGroupMember -Identity $elevatedGroup -Members $DomainAdminSam -ErrorAction SilentlyContinue
     Write-Host "Added $DomainAdminSam to Elevated Users Group." -ForegroundColor Green
